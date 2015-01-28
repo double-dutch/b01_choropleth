@@ -1,94 +1,167 @@
 <!DOCTYPE html>
-<html lang="en">
-	<head>
-		<meta charset="utf-8">
-		<title>Mapping</title>
-		<script type="text/javascript" src="../d3/d3.v3.js"></script>
-		<style type="text/css">
-			/* No style rules here yet */
-		</style>
-	</head>
-	<body>
-		<script type="text/javascript">
+<meta charset="utf-8">
+<style>
 
-			// Width and height
-			var w = 1200;
-			var h = 1000;
+path {
+  stroke:white;
+  stroke-width: .5px;
+}
 
-			// Define map projection
-			var projection = d3.geo.albersUsa()
-								   .translate([w/2, h/2])
-								   .scale([1000]);
+body {
+  font-family: Arial, sans-serif;
+}
 
-			// Define path generator
-			var path = d3.geo.path()
-							 .projection(projection);
+.buttons {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
 
-			// Define quantize scale to sort data values into buckets of color
-			var color = d3.scale.quantize()
-								.range(["rgb(237,248,233)","rgb(186,228,179)","rgb(116,196,118)","rgb(49,163,84)","rgb(0,109,44)"]);
+.buttons label {
+  margin-left: 20px;
+}
 
-			// Create SVG element
-			var svg = d3.select("body")
-						.append("svg")
-						.attr("width", w)
-						.attr("height", h);
+.hlight {
+  background-color:#edf8fb;
+  -moz-border-radius: 5px;
+  -webkit-border-radius: 5px;
+  border: .5px solid  #00441b;
+}
 
-			// Load in brewery data
-      var data_brew;
-			d3.json("../data/breweries_US.json", function(brew) {
+.legend {
+  font-size: 12px;
+}
 
-        // Set input domain for color scale
-        color.domain([
-					d3.min(brew, function(d) { return parseFloat(d.n_breweries); }),
-					d3.max(brew, function(d) { return parseFloat(d.n_breweries); })
-				]);
+</style>
 
-        // Load in GeoJSON data
-        d3.json("../data/us-states.json", function(geo) {
+<div class="buttons">
+  <input type="submit" value="1" class="button--1 hlight" style="width: 50px;" />
+  <input type="submit" value="2" class="button--2" style="width: 50px;" />
+  <input type="submit" value="3" class="button--3" style="width: 50px;" />
+</div>
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script type="text/javascript" src="http://d3js.org/queue.v1.min.js"></script>
+<script src="http://d3js.org/topojson.v1.min.js"></script>
+<script src="//code.jquery.com/jquery-1.10.2.js"></script>
+<script>
 
-          // Merge brewery data and GeoJSON
-          for (var i = 0; i < brew.length; i++) {
+  // Button highlighting
+  $('input[type="submit"]').click(function(){
+    $('input[type="submit"].hlight').removeClass('hlight')
+        $(this).addClass('hlight');
+  });
 
-            // Grab state name and number of breweries
-            var state = brew[i].state;
-            var nbrew = parseFloat(brew[i].n_breweries);
+  // SVG Properties
+  var width  = 960,
+      height = 500;
 
-            // Finding the corresponding state in the GeoJSON data
-            for (var j = 0; j < geo.features.length; j++) {
+  var projection = d3.geo.albersUsa()
+    .scale(1000)
+    .translate([width / 2, height / 2]);
 
-              // Copying the brewery data into the GeoJSON data
-              var json_state = geo.features[j].properties.name;
-              if (state == json_state) {
-                geo.features[j].properties.value = nbrew;
-                break;
-              }
-            }
-          }
-          console.log(geo.features);
+  var color = d3.scale.log()
+    .range(["#edf8fb", "#006d2c"])
+    .interpolate(d3.interpolateHcl);
 
-          // Bind the data and create one path per GeoJSON feature
-          svg.selectAll("path")
-             .data(geo.features)
-             .enter()
-             .append("path")
-             .attr("d",path)
-             .style("fill", function(d) {
-                var value = d.properties.value;
-                if (value) {
-                  return color(value);
-                } else{
-                  return "#ccc";
-                }
+  var path = d3.geo.path()
+    .projection(projection);
 
-             });
-
-        });
-      });
+  var svg = d3.select("body").append("svg")
+    .attr("width", width)
+    .attr("height", height);
 
 
+  // Reading data
+  queue()
+    .defer(d3.json,"../data/us-states-named.json")
+    .await(ready);
 
 
-		</script>
-	</body>
-</html>
+  // Beginning of choropleth
+  function ready(error, map) {
+
+    // Data, removing Puerto Rico and the Virgin Islands
+    var states = topojson.feature(map, map.objects.states).features;
+    var states_clean = $.grep(states, function(e) {
+        return e.properties.code!="VI" && e.properties.code != "PR" && e.properties.code != "DC"
+    });
+    console.log(states_clean);
+
+    // Color domains
+    d_1 = [d3.min(states_clean, function(d) { return parseInt(d.properties.nbrew); }),
+           d3.max(states_clean, function(d) { return parseInt(d.properties.nbrew); })];
+    d_2 = [d3.min(states_clean, function(d) { return parseFloat(d.properties.nbrew_norm_area); }),
+           d3.max(states_clean, function(d) { return parseFloat(d.properties.nbrew_norm_area); })];
+    d_3 = [d3.min(states_clean, function(d) { return parseFloat(d.properties.nbrew_norm_pop); }),
+           d3.max(states_clean, function(d) { return parseFloat(d.properties.nbrew_norm_pop); })];
+    color.domain(d_1);
+
+    // Graphing states
+    var state_paths = svg.selectAll("path")
+      .data(states_clean)
+    .enter().append("path")
+      .attr("d", path)
+      .style("fill", function(d) { return color(d.properties.nbrew); })
+
+    // Shading transitions
+    .on("mouseover", function(d) {
+      d3.select(this.parentNode.appendChild(this)).transition().duration(200)
+        .style({'stroke':'#00441b','stroke-width':'.5px'});
+    })
+    .on("mouseout", function(d) {
+      d3.select(this.parentNode.appendChild(this)).transition().duration(200)
+        .style('stroke','white');
+    });
+
+
+    // Transition 1: Number of breweries
+    d3.selectAll(".button--1").on("click", function() {
+      color.domain(d_1);
+      state_paths.transition()
+        .duration(1000)
+        .style("fill", function(d) { return color(d.properties.nbrew); });
+    });
+
+    // Transition 2: Normalized for state land mass
+    d3.selectAll(".button--2").on("click", function() {
+      color.domain(d_2);
+      state_paths.transition()
+        .duration(1000)
+        .style("fill", function(d) { return color(d.properties.nbrew_norm_area); });
+    });
+
+    // Transition 3: Normalized for state population
+    d3.selectAll(".button--3").on("click", function() {
+      color.domain(d_3);
+      state_paths.transition()
+        .duration(1000)
+        .style("fill", function(d) { return color(d.properties.nbrew_norm_pop); });
+    });
+
+  };  // <--- End of choropleth
+
+
+  // Legend
+  var leg_labels = ['Less','','','More'];
+  var col_labels = ['#edf8fb', '#99d8c9', '#41ae76', '#005824'];
+  var legend = svg.selectAll("g.legend")
+  .data(col_labels)
+  .enter().append("g")
+  .attr("class", "legend");
+
+  var ls_w = 20, ls_h = 20;
+
+  legend.append("rect")
+  .attr("x", 20)
+  .attr("y", function(d, i){ return height - (i*ls_h) - 2*ls_h;})
+  .attr("width", ls_w)
+  .attr("height", ls_h)
+  .style("fill", function(d, i) { return d; });
+
+  legend.append("text")
+  .attr("x", 50)
+  .attr("y", function(d, i){ return height - (i*ls_h) - ls_h - 4;})
+  .text(function(d, i){ return leg_labels[i]; });
+
+
+</script>
