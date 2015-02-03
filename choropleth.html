@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+path {
+  stroke:white;
+  stroke-width: .5px;
+}
+
+body {
+  font-family: Arial, sans-serif;
+}
+
+.buttons {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+
+.buttons label {
+  margin-left: 20px;
+}
+
+.hlight {
+  background-color:#edf8fb;
+  -moz-border-radius: 5px;
+  -webkit-border-radius: 5px;
+  border: .5px solid  #00441b;
+}
+
+div {
+  display: block;
+}
+
+.g-tooltip {
+  position: absolute;
+  text-align: center;
+  width: 100px;
+  height: 60px;
+  padding: 2px;
+  font-size: 10px;
+  background: white;
+  border: 1px;
+  -moz-border-radius: 2px;
+  -webkit-border-radius: 2px;
+  pointer-events: none;
+  box-shadow: 0px 0px 8px -1px black;
+  -moz-box-shadow: 0px 0px 8px -1px black;
+  -webkit-box-shadow: 0px 0px 8px -1px black;
+}
+
+.th {
+  text-align: center;
+  -webkit-column-span: all; /* Chrome, Safari, Opera */
+   column-span: all;
+}
+
+.td-val {
+  text-align: right;
+}
+
+.td-name {
+  text-align: right;
+}
+
+.legend {
+  font-size: 12px;
+}
+
+</style>
+
+<div class="buttons">
+  <input type="submit" value="1" class="button--1 hlight" style="width: 50px;" />
+  <input type="submit" value="2" class="button--2" style="width: 50px;" />
+  <input type="submit" value="3" class="button--3" style="width: 50px;" />
+</div>
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script type="text/javascript" src="http://d3js.org/queue.v1.min.js"></script>
+<script src="http://d3js.org/topojson.v1.min.js"></script>
+<script src="//code.jquery.com/jquery-1.10.2.js"></script>
+<script>
+
+  // Button highlighting
+  $('input[type="submit"]').click(function(){
+    $('input[type="submit"].hlight').removeClass('hlight')
+        $(this).addClass('hlight');
+  });
+
+  // Colors
+  var palette = [{c1:'#edf8fb', c2:'#99d8c9', c3:'#41ae76', c4:'#005824'},    // Green
+                 {c1:'#eff3ff', c2:'#9ecae1', c3:'#4292c6', c4:'#084594'},    // Blue
+                 {c1:'#f5f5f5', c2:'#f6e8c3', c3:'#8c510a', c4:'#543005'}];   // Brown
+
+
+  var palette_1 = [['#edf8fb', '#99d8c9', '#41ae76', '#005824'],    // Green
+                   ['#eff3ff', '#9ecae1', '#4292c6', '#084594'],    // Blue
+                   ['#f5f5f5', '#f6e8c3', '#8c510a', '#543005']];   // Brown
+
+  // Tooltip
+  var div = d3.select("body")
+    .append("div").attr("class", "g-tooltip")
+  .style("opacity", 0);
+
+    // Tooltip - mouseover
+    function mouseover(p) {
+      div.transition()
+        .duration(300)
+        .style("opacity", .9)
+        .style("left", (d3.event.pageX +25) + "px")
+        .style("top", (d3.event.pageY -75) + "px");
+      d3.selectAll(".row text").classed("active", function(d, i) { return i == p.y; });
+      d3.selectAll(".column text").classed("active", function(d, i) { return i == p.x; });
+    }
+
+    // Tooltip - mousemove
+    function mousemove(d) {
+      div
+        .style("left", (d3.event.pageX +25) + "px")
+        .style("top", (d3.event.pageY -75) + "px")
+        .style("opacity",.9);
+    }
+
+    // Tooltip - mouseout
+    function mouseout() {
+      div.transition()
+        .duration(300)
+        .style("opacity", 1e-6);
+      d3.selectAll("text").classed("active", false);
+    }
+
+    // Tooltip - table
+    function tabulate(p) {
+
+      var data = [
+      { name:'Breweries', value: p.properties.nbrew },
+      { name: "Density (Area)", value: Math.round(p.properties.nbrew_norm_area*10)/10 },
+      { name: "Density (Pop.)", value: Math.round(p.properties.nbrew_norm_pop*10)/10  }];
+      var columns = ['name','value'];
+
+      var table = div.append("table"),
+          tbody = table.append("tbody");
+
+      // Create a row for each object in the data
+      var rows = tbody.selectAll("tr")
+          .data(data)
+          .enter()
+          .append("tr");
+
+      // Create a cell in each row for each column
+      var cells = rows.selectAll("td")
+          .data(function(row) {
+              return columns.map(function(column) {
+                  return {column: column, value: row[column]};
+              });
+          })
+          .enter()
+          .append("td")
+          .text(function(d,i) {
+            if (i % 2 == 0) { return d.value + ":"; }
+            else { return d.value; }
+          })
+          .attr("class", function(d,i) {
+            if (i % 2 == 0) { return 'td-val'; }
+            else { return 'td-name'; }
+          });
+
+      return table;
+    }
+
+
+
+  // SVG Properties
+  var width  = 960,
+      height = 500;
+
+  var projection = d3.geo.albersUsa()
+    .scale(1000)
+    .translate([width / 2, height / 2]);
+
+  var color = d3.scale.log()
+    .range([palette[0].c1, palette[0].c4])
+    .interpolate(d3.interpolateHcl);
+
+  var path = d3.geo.path()
+    .projection(projection);
+
+  var svg = d3.select("body").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+
+  // Reading data
+  queue()
+    .defer(d3.json,"./us-states-named.json")
+    .await(ready);
+
+
+  // Beginning of choropleth
+  function ready(error, map) {
+
+    // Data, removing Puerto Rico and the Virgin Islands
+    var states = topojson.feature(map, map.objects.states).features;
+    var states_clean = $.grep(states, function(e) {
+        return e.properties.code!="VI" && e.properties.code != "PR" && e.properties.code != "DC"
+    });
+
+    // Color domains
+    d_1 = [d3.min(states_clean, function(d) { return parseInt(d.properties.nbrew); }),
+           d3.max(states_clean, function(d) { return parseInt(d.properties.nbrew); })];
+    d_2 = [d3.min(states_clean, function(d) { return parseFloat(d.properties.nbrew_norm_area); }),
+           d3.max(states_clean, function(d) { return parseFloat(d.properties.nbrew_norm_area); })];
+    d_3 = [d3.min(states_clean, function(d) { return parseFloat(d.properties.nbrew_norm_pop); }),
+           d3.max(states_clean, function(d) { return parseFloat(d.properties.nbrew_norm_pop); })];
+    color.domain(d_1);
+
+    // Graphing states
+    var state_paths = svg.selectAll("path")
+      .data(states_clean)
+    .enter().append("path")
+      .attr("d", path)
+      .style("fill", function(d) { return color(d.properties.nbrew); })
+
+    // Shading transitions
+    .on("mouseover", function(d) {
+      d3.select(this.parentNode.appendChild(this)).transition().duration(200)
+        .style({'stroke':'#00441b','stroke-width':'.5px'});
+      div.text(d.properties.name);
+      tabulate(d);
+      mouseover(d);
+    })
+    .on("mousemove", function(d) {
+        mousemove(d);
+    })
+    .on("mouseout", function(d) {
+      d3.select(this.parentNode.appendChild(this)).transition().duration(200)
+        .style('stroke','white');
+      mouseout(d);
+    });
+
+
+    // Transition 1: Number of breweries
+    d3.selectAll(".button--1").on("click", function() {
+      color.domain(d_1)
+        .range([palette[0].c1, palette[0].c4]);
+      state_paths.transition()
+        .duration(1000)
+        .style("fill", function(d) { return color(d.properties.nbrew); });
+    });
+
+    // Transition 2: Normalized for state land mass
+    d3.selectAll(".button--2").on("click", function() {
+      color.domain(d_2)
+        .range([palette[1].c1, palette[1].c4]);
+      state_paths.transition()
+        .duration(1000)
+        .style("fill", function(d) { return color(d.properties.nbrew_norm_area); });
+    });
+
+    // Transition 3: Normalized for state population
+    d3.selectAll(".button--3").on("click", function() {
+      color.domain(d_3)
+        .range([palette[2].c1, palette[2].c4]);
+      state_paths.transition()
+        .duration(1000)
+        .style("fill", function(d) { return color(d.properties.nbrew_norm_pop); });
+    });
+
+  };  // <--- End of choropleth
+
+
+  // Legend
+  var leg_labels = ['Less','','','More'];
+  var ls_w = 30,
+      ls_h = 10;
+  var legend = svg.selectAll('g.legend')
+    .data(palette_1)
+    .enter()
+    .append('g')
+    .attr('class', 'legend');
+
+  var bars = legend.selectAll("rect")
+    .data(function(d) { return d; })
+    .enter()
+    .append("rect")
+      .attr("x", function(d,i) { return width * .6 + (i * ls_w) - 2 * ls_w;})
+      .attr("y", function(d,i,j) { return height * .03 * j; })
+      .attr("width", ls_w)
+      .attr("height", ls_h)
+      .style("fill", function(d) { return d; });
+
+  legend.selectAll("text")
+  .data(leg_labels)
+  .enter()
+  .append("text")
+  .attr("x", function(d, i) { return width * .6 + (i * ls_w) - 2 * ls_w;})
+  .attr("y", height * .03 * 4)
+  .text(function(d){ return d; });
+
+</script>
